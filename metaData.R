@@ -26,33 +26,44 @@ metaData = function(MicrobData,
   
   # read microbiome data
   if (is.matrix(MicrobData))
-    MdataWithId = data.matrix(MicrobData)
+    MdataWithId = cbind(MicrobData[, linkIDname, drop = FALSE], data.matrix(MicrobData[, !colnames(MicrobData) %in%
+                                                                                         linkIDname]))
   if (is.data.frame(MicrobData))
-    MdataWithId = data.matrix(MicrobData)
+    MdataWithId = cbind(MicrobData[, linkIDname, drop = FALSE], data.matrix(MicrobData[, !colnames(MicrobData) %in%
+                                                                                         linkIDname]))
   if (is.character(MicrobData)) {
     nCharac = nchar(MicrobData)
     if (substr(MicrobData, (nCharac - 2), nCharac) == "csv") {
-      MdataWithId = data.matrix(read.csv(
+      MdataWithId = read.csv(
         file = MicrobData,
         header = TRUE,
         na.strings = c("", "NA")
-      ))
+      )
     }
     if (substr(MicrobData, (nCharac - 2), nCharac) == "tsv") {
-      MdataWithId = data.matrix(read.table(
+      MdataWithId = read.table(
         file = MicrobData,
         sep = '\t',
         header = TRUE,
         na.strings = c("", "NA")
-      ))
+      )
     }
   }
   
   if (length(colnames(MdataWithId)) != ncol(MdataWithId))
     stop("Microbiome data lack variable names.")
   
-  MdataWithoutId = MdataWithId[, !(colnames(MdataWithId) %in% linkIDname), drop =
-                                 FALSE]
+  MdataWithoutId = data.matrix(MdataWithId[, !(colnames(MdataWithId) %in% linkIDname), drop =
+                                             FALSE])
+  uniqMnames = unique(colnames(MdataWithoutId))
+  if (length(uniqMnames) != length(colnames(MdataWithoutId))) {
+    nDup = length(colnames(MdataWithoutId)) - length(uniqMnames)
+    message(nDup,
+            " Duplicated taxa/OTU/ASV names are removed from the microbiome data.")
+  }
+  MdataWithoutId = MdataWithoutId[, uniqMnames]
+  MdataWithId = cbind(MdataWithId[, linkIDname, drop = FALSE], MdataWithoutId)
+  
   if (!all(MdataWithoutId >= 0))
     stop("Microbiome data contains negative values.")
   rm(MdataWithoutId)
@@ -67,25 +78,27 @@ metaData = function(MicrobData,
   
   # read covariate data
   if (is.matrix(CovData))
-    CovarWithId = data.matrix(CovData)
+    CovarWithId = cbind(CovData[, linkIDname, drop = FALSE], data.matrix(CovData[, !colnames(CovData) %in%
+                                                                                   linkIDname]))
   if (is.data.frame(CovData))
-    CovarWithId = data.matrix(CovData)
+    CovarWithId = cbind(CovData[, linkIDname, drop = FALSE], data.matrix(CovData[, !colnames(CovData) %in%
+                                                                                   linkIDname]))
   if (is.character(CovData)) {
     nCharac = nchar(CovData)
     if (substr(CovData, (nCharac - 2), nCharac) == "csv") {
-      CovarWithId = data.matrix(read.csv(
+      CovarWithId = read.csv(
         file = CovData,
         header = TRUE,
         na.strings = c("", "NA")
-      ))
+      )
     }
     if (substr(CovData, (nCharac - 2), nCharac) == "tsv") {
-      CovarWithId = data.matrix(read.table(
+      CovarWithId = read.table(
         file = CovData,
         sep = '\t',
         header = TRUE,
         na.strings = c("", "NA")
-      ))
+      )
     }
   }
   
@@ -100,8 +113,8 @@ metaData = function(MicrobData,
     )
   }
   
-  Covariates1 = CovarWithId[, !colnames(CovarWithId) %in% linkIDname, drop =
-                              FALSE]
+  Covariates1 = data.matrix(CovarWithId[, !colnames(CovarWithId) %in% linkIDname, drop =
+                                          FALSE])
   
   # determine testCov and ctrlCov
   if (length(testCov) == 0) {
@@ -132,33 +145,24 @@ metaData = function(MicrobData,
   # merge data to remove missing
   CovarWithId1 = CovarWithId[, c(linkIDname, testCov, ctrlCov)]
   
-  allRawData = data.matrix(na.omit(
-    merge(
-      CovarWithId1,
-      MdataWithId,
-      by = linkIDname,
-      all.x = FALSE,
-      all.y = FALSE
-    )
+  allRawData = na.omit(merge(
+    CovarWithId1,
+    MdataWithId,
+    by = linkIDname,
+    all.x = FALSE,
+    all.y = FALSE
   ))
   
   CovarWithId = allRawData[, (colnames(allRawData) %in% colnames(CovarWithId1)), drop =
                              FALSE]
-  Covariates = CovarWithId[, !colnames(CovarWithId) %in% linkIDname, drop =
-                             FALSE]
+  
+  Covariates = data.matrix(CovarWithId[, !colnames(CovarWithId) %in% linkIDname, drop =
+                                         FALSE])
   rm(CovarWithId1)
   
-  
   if (!is.numeric(Covariates[, testCov, drop = FALSE])) {
-    warning("There are non-numeric variables in the test covariates")
-    nTestCov = length(testCov)
-    numCheck = unlist(lapply(seq(nTestCov), function(i)
-      is.numeric(Covariates[, testCov[i]]))) + 0
-    for (i in which(numCheck == 0)) {
-      Covariates[, testCov[i]] = as.numeric(factor(Covariates[, testCov[i]]))
-    }
+    stop("There are non-numeric variables in the covariates for association test.")
   }
-  
   
   MdataWithId = allRawData[, (colnames(allRawData) %in% colnames(MdataWithId))]
   Mdata_raw = MdataWithId[, !(colnames(MdataWithId) %in% linkIDname), drop =
@@ -256,29 +260,9 @@ metaData = function(MicrobData,
   results$binaryInd = binaryInd
   results$xNames = colnames(Covariates)
   if (standardize) {
-    if (length(binaryInd) > 0) {
-      Covariates[, -binaryInd] <- Covariates[, -binaryInd] %*%
-        diag(1 / apply(Covariates[, -binaryInd], 2, function(x)
-          sd(x, na.rm = TRUE)))
-    } else {
-      Covariates <- Covariates %*%
-        diag(1 / apply(Covariates, 2, function(x)
-          sd(x, na.rm = TRUE)))
-    }
-    
-  }
-  
-  #### Test for constant column
-  sd_col <- apply(Covariates, 2, function(x)
-    sd(x, na.rm = TRUE))
-  sd_zero_loc <- which(sd_col == 0)
-  if (length(sd_zero_loc) > 0) {
-    Covariates[, sd_zero_loc] <- 0
-    warning(paste0(
-      "Covariate ",
-      colnames(Covariates)[sd_zero_loc],
-      " is constant, please double check"
-    ))
+    Covariates[, -binaryInd] <- Covariates[, -binaryInd] %*%
+      diag(1 / apply(Covariates[, -binaryInd], 2, function(x)
+        sd(x, na.rm = TRUE)))
   }
   
   xNewNames = paste0("x", seq(length(xNames)))
@@ -311,7 +295,7 @@ metaData = function(MicrobData,
   # check taxa with zero or 1 read again after all missing data removed
   numTaxaNoReads = sum(colSums(Mdata_omit != 0) <= taxDropThresh)
   if (numTaxaNoReads == 0) {
-    results$data = data.matrix(dataOmit)
+    results$data = dataOmit
   }
   if (numTaxaNoReads > 0) {
     dataOmit_noTaxa = dataOmit[, !(colnames(dataOmit) %in% newMicrobNames1)]
@@ -329,7 +313,7 @@ metaData = function(MicrobData,
     newMicrobNames = newMicrobNames1
     results$newMicrobNames = newMicrobNames
     colnames(MdataToRetain) = microbToRetain
-    results$data = data.matrix(cbind(dataOmit_noTaxa, MdataToRetain))
+    results$data = cbind(dataOmit_noTaxa, MdataToRetain)
     rm(dataOmit_noTaxa, MdataToRetain, microbToRetain)
   }
   rm(numTaxaNoReads,
